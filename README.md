@@ -92,30 +92,157 @@ etl-pipeline-framework/
 └── docs/
     └── architecture.md
 ```
+## Python ETL Examples
 
----
+###DB Connection
+'''python
+from sqlalchemy import create_engine, URL
+from sqlalchemy.engine import Engine
+def get_sql_engine(
+    server: str,
+    database: str,
+    driver: str = "ODBC Driver 17 for SQL Server",
+    trusted: bool = True,
+    encrypt: bool = False,
+    trust_server_cert: bool = True,
+    fast_executemany: bool = True,
+):
+    params = []
+    if trusted:
+        params.append("Trusted_Connection=yes")
+    if encrypt:
+        params.append("Encrypt=yes")
+    if trust_server_cert:
+        params.append("TrustServerCertificate=yes")
+    odbc_connect = (
+        f"DRIVER={{{driver}}};"
+        f"SERVER={server};"
+        f"DATABASE={database};"
+        + ";".join(params)
+    )
+    url = URL.create(
+        "mssql+pyodbc",
+        query={
+            "odbc_connect": odbc_connect
+        }
+    )
+    engine = create_engine(
+        url,
+        future=True,
+        fast_executemany=fast_executemany,
+        pool_pre_ping=True,
+        pool_recycle=1800
+    )
+    return engine
+    
+---python 
+####SETTINGS 
+from pathlib import Path
+
+# Base folder
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Data folders
+DATA_DIR = BASE_DIR / "data"
+
+INPUT_DIR = DATA_DIR / "input"
+
+OUTPUT_DIR = DATA_DIR / "output"
+
+ARCHIVE_DIR = DATA_DIR / "archive"
+
+LOG_DIR = BASE_DIR / "logs"
+
+# SQL
+
+SERVER = r"SQLSERVER01\PHARMMARTDB"
+
+DATABASE = "PharmMart"
+
+SCHEMA = "sh_340B"
+
+TARGET_TABLE = "MH_RetailQualified"
+
+AUDIT_SCHEMA = "dbo"
+AUDIT_TABLE = "Test_ETL_Run_History"
+
+# Processing
+
+CHUNK_SIZE = 250000
+
+SQL_INSERT_SIZE = 5000
+
+MAX_WORKERS = 4
+
+# Logging
+LOG_DIR = BASE_DIR / "logs"
+LOG_LEVEL = "INFO"
+
+''' python 
+from pathlib import Path
+from typing import Iterator
+
+import pandas as pd
+
+
+class CSVExtractor:
+    def __init__(
+        self,
+        file_path,
+        chunk_size=250000,
+        encoding="utf-8",
+        parse_dates=None
+    ):
+        self.file_path = Path(file_path)
+        self.chunk_size = chunk_size
+        self.encoding = encoding
+        self.parse_dates = parse_dates or []
+        if not self.file_path.exists():
+            raise FileNotFoundError(
+                f"File not found: {self.file_path}"
+            )
+    def extract(self) -> Iterator[pd.DataFrame]:
+        """
+        Yield dataframe chunks.
+        """
+        try:
+            for chunk in pd.read_csv(
+                self.file_path,
+                chunksize=self.chunk_size,
+                encoding=self.encoding,
+                low_memory=False
+            ):
+                for col in self.parse_dates:
+                    if col in chunk.columns:
+                        chunk[col] = pd.to_datetime(
+                            chunk[col],
+                            errors="coerce"
+                        )
+                yield chunk
+        except pd.errors.EmptyDataError:
+            print(
+                f"Skipping empty file: {self.file_path.name}"
+            )
+            return
+
+
 
 ## Quick Start
-
 ```bash
+
 # 1. Clone the repo
 git clone https://github.com/jeff-rotar/etl-pipeline-framework
 cd etl-pipeline-framework
-
 # 2. Create and activate a virtual environment
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
-
 # 3. Install dependencies
 pip install -r requirements.txt
-
 # 4. Configure your environment
 cp .env.example .env
 # Edit .env with your DB credentials and API keys
-
 # 5. Run the pipeline
 python src/pipeline.py --config config/config.yaml
-
 # 6. Run tests
 pytest tests/ -v
 ```
